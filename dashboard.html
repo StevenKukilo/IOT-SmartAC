@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AC Pintar Hemat Energi</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+:root{--bg:#e8f0f3;--card:#fff;--ink:#12343b;--mute:#5d7a82;--cool:#1b8aa6;--hot:#e4572e;--line:#cfdde2}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Sora,system-ui,sans-serif;padding:20px}
+.wrap{max-width:900px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+h1{font-size:1.25rem;margin:0}
+.conn{font-size:.85rem;color:var(--mute);display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--hot)}
+.dot.on{background:#2fa36b}
+.grid{display:grid;grid-template-columns:1.1fr 1fr;gap:16px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border-radius:20px;padding:20px;border:1px solid var(--line)}
+.dial{position:relative;max-width:300px;margin:0 auto}
+.dial svg{width:100%;display:block}
+.dial .mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.temp{font-size:3rem;font-weight:700;line-height:1}
+.sub{color:var(--mute);font-size:.85rem;margin-top:6px}
+.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--bg);border-radius:12px;padding:4px;margin:8px 0 18px}
+.seg button{border:0;background:none;padding:10px;border-radius:9px;font:inherit;font-weight:600;color:var(--mute);cursor:pointer}
+.seg button.act{background:var(--ink);color:#fff}
+.power{width:100%;padding:16px;border:0;border-radius:14px;font:inherit;font-weight:700;font-size:1.05rem;cursor:pointer;background:var(--bg);color:var(--ink)}
+.power.on{background:var(--cool);color:#fff}
+.power:disabled{opacity:.45;cursor:not-allowed}
+label{font-size:.85rem;color:var(--mute);display:flex;justify-content:space-between;margin:18px 0 6px}
+input[type=range]{width:100%;accent-color:var(--cool)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:16px}
+@media(max-width:720px){.stats{grid-template-columns:1fr}}
+.stat b{display:block;font-size:1.5rem}
+.stat span{font-size:.8rem;color:var(--mute)}
+.chart{margin-top:16px}
+.chart svg{width:100%;height:110px}
+:focus-visible{outline:3px solid var(--cool);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>AC Pintar Hemat Energi</h1>
+    <div class="conn"><span class="dot" id="dot"></span><span id="connTxt">Menghubungkan…</span></div>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <div class="dial">
+        <svg viewBox="0 0 240 240">
+          <circle cx="120" cy="120" r="100" fill="none" stroke="#e8f0f3" stroke-width="16"/>
+          <circle id="arc" cx="120" cy="120" r="100" fill="none" stroke="#1b8aa6" stroke-width="16"
+                  stroke-linecap="round" stroke-dasharray="0 628" transform="rotate(-90 120 120)"/>
+          <circle id="mark" r="9" fill="#fff" stroke="#12343b" stroke-width="4" cx="120" cy="20"/>
+        </svg>
+        <div class="mid">
+          <div class="temp"><span id="suhu">--</span>°C</div>
+          <div class="sub">Kelembapan <span id="lembap">--</span>%</div>
+          <div class="sub">Target <b id="spLabel">--</b>°C</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sub">Mode</div>
+      <div class="seg">
+        <button id="mAuto">Otomatis</button>
+        <button id="mMan">Manual</button>
+      </div>
+      <button class="power" id="power">AC mati</button>
+      <label>Suhu target <b id="spVal">25°C</b></label>
+      <input type="range" id="sp" min="18" max="30" step="1" value="25" aria-label="Suhu target">
+    </div>
+  </div>
+
+  <div class="card stats">
+    <div class="stat"><b id="orang">--</b><span>Kondisi ruangan</span></div>
+    <div class="stat"><b id="aktif">--</b><span>Total AC menyala</span></div>
+    <div class="stat"><b id="hemat">--</b><span>Listrik dihemat (asumsi AC 800 W)</span></div>
+  </div>
+
+  <div class="card chart">
+    <div class="sub">Riwayat suhu</div>
+    <svg viewBox="0 0 300 80" preserveAspectRatio="none"><polyline id="line" fill="none" stroke="#1b8aa6" stroke-width="2" points=""/></svg>
+  </div>
+</div>
+
+<script>
+const ID = "acpintar-StevenKukilo";            // HARUS sama dengan ID di kode ESP32
+const S = {}, hist = [];
+const $ = id => document.getElementById(id);
+const client = mqtt.connect("wss://broker.hivemq.com:8884/mqtt");
+const send = (k, v) => client.publish(ID + "/" + k, String(v));
+
+client.on("connect", () => {
+  $("dot").classList.add("on"); $("connTxt").textContent = "Terhubung ke broker";
+  client.subscribe(ID + "/#");
+});
+client.on("close", () => {
+  $("dot").classList.remove("on"); $("connTxt").textContent = "Terputus";
+});
+client.on("message", (topic, msg) => {
+  const k = topic.slice(ID.length + 1);
+  S[k] = msg.toString();
+  if (k === "suhu" && !isNaN(parseFloat(S.suhu))) {
+    hist.push(parseFloat(S.suhu)); if (hist.length > 60) hist.shift();
+  }
+  render();
+});
+
+const fmtTime = s => { s = +s || 0; return Math.floor(s / 60) + " mnt " + (s % 60) + " dtk"; };
+function frac(t) { return Math.min(1, Math.max(0, (t - 16) / 24)); }   // skala 16–40°C
+
+function render() {
+  const t = parseFloat(S.suhu), sp = parseFloat(S.setpoint);
+  if (!isNaN(t)) {
+    $("suhu").textContent = t.toFixed(1);
+    $("arc").setAttribute("stroke-dasharray", (frac(t) * 628) + " 628");
+    $("arc").setAttribute("stroke", S.ac === "ON" ? "#1b8aa6" : (!isNaN(sp) && t >= sp ? "#e4572e" : "#1b8aa6"));
+  }
+  if (S.lembap) $("lembap").textContent = S.lembap;
+  if (!isNaN(sp)) {
+    $("spLabel").textContent = sp; $("spVal").textContent = sp + "°C"; $("sp").value = sp;
+    const a = frac(sp) * 2 * Math.PI - Math.PI / 2;
+    $("mark").setAttribute("cx", 120 + 100 * Math.cos(a));
+    $("mark").setAttribute("cy", 120 + 100 * Math.sin(a));
+  }
+  const auto = S.mode !== "MANUAL";
+  $("mAuto").classList.toggle("act", auto);
+  $("mMan").classList.toggle("act", !auto);
+  $("power").disabled = auto;
+  $("power").classList.toggle("on", S.ac === "ON");
+  $("power").textContent = S.ac === "ON" ? "AC menyala" : "AC mati";
+  if (S.orang) $("orang").textContent = S.orang === "1" ? "Ada orang" : "Kosong";
+  if (S.aktif) $("aktif").textContent = fmtTime(S.aktif);
+  if (S.hemat) $("hemat").textContent = (S.hemat / 3600 * 800).toFixed(1) + " Wh";
+  if (hist.length > 1) {
+    const mn = Math.min(...hist) - 1, mx = Math.max(...hist) + 1;
+    $("line").setAttribute("points", hist.map((v, i) =>
+      (i / 59 * 300).toFixed(1) + "," + (80 - (v - mn) / (mx - mn) * 80).toFixed(1)).join(" "));
+  }
+}
+
+$("mAuto").onclick = () => send("mode", "AUTO");
+$("mMan").onclick = () => send("mode", "MANUAL");
+$("power").onclick = () => send("cmd", S.ac === "ON" ? "OFF" : "ON");
+$("sp").oninput = e => { $("spVal").textContent = e.target.value + "°C"; };
+$("sp").onchange = e => send("setpoint", e.target.value);
+</script>
+</body>
+</html>
