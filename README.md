@@ -2,8 +2,8 @@
 
 Sistem IoT berbasis **ESP32** yang menyalakan AC **hanya saat ruangan dipakai dan suhunya panas**. Kondisi ruangan dapat dipantau dan AC dapat dikendalikan dari **dashboard web atau HP** lewat MQTT. Proyek ini berjalan sepenuhnya di **simulator Wokwi** di dalam VS Code, jadi tidak perlu membeli komponen apa pun.
 
-![Dashboard](docs/dashboard.png)
-<!-- Tambahkan tangkapan layar dashboard dan rangkaian Wokwi di folder docs/ -->
+![Dashboard] https://stevenkukilo.github.io/IOT-SmartAC/
+
 
 ## Daftar isi
 
